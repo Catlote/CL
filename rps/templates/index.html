@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CL-RPS Neural AI</title>
+<style>
+body {
+    font-family:sans-serif;
+    background:#f0f0f0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:10px;
+    margin:0;
+}
+h1 {
+    font-size:1.5em;
+    text-shadow:1px 1px #888;
+    margin-bottom:5px;
+}
+h2 {
+    margin:5px 0 15px 0;
+}
+#game {
+    display:flex;
+    gap:20px;
+    align-items:center;
+}
+#controls {
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+button {
+    font-size:1.5em;
+    padding:5px 10px;
+    border-radius:8px;
+    box-shadow:1px 1px 4px #555;
+    cursor:pointer;
+    background:white;
+}
+#ai-display {
+    font-size:1.5em;
+    min-height:35px;
+    width:90px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    box-shadow:1px 1px 4px #555;
+    border-radius:8px;
+    background:white;
+}
+#result {
+    margin-top:10px;
+    font-size:1.2em;
+    font-weight:bold;
+    text-shadow:1px 1px #888;
+}
+#nn-label {
+    margin-top:15px;
+    font-weight:bold;
+    font-size:1em;
+}
+#nn-canvas {
+    margin-top:5px;
+    background:white;
+    box-shadow:1px 1px 4px #555;
+    border-radius:8px;
+}
+#editor-buttons {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    z-index: 100;
+}
+#editor-buttons button {
+    font-size: 0.8em;
+    padding: 3px 6px;
+    border-radius:5px;
+}
+#edit-modal {
+    display:none;
+    position:fixed;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:2px 2px 10px #333;
+    z-index:200;
+}
+</style>
+</head>
+<body>
+<h1>CL-RPS</h1>
+<h2>Human VS AI</h2>
+
+<div id="game">
+    <div id="controls">
+        <button onclick="play('rock')" title="Rock">✊</button>
+        <button onclick="play('paper')" title="Paper">✋</button>
+        <button onclick="play('scissors')" title="Scissors">✌️</button>
+    </div>
+    <div id="ai-display">
+        <div id="ai-move-box"></div>
+    </div>
+</div>
+
+<div id="result"></div>
+
+<!-- Editor buttons -->
+<div id="editor-buttons">
+</div>
+
+<div id="edit-modal">
+    <h3>Select editors (max 5)</h3>
+    <form id="editor-form"></form>
+    <button onclick="saveEditors()">Save</button>
+</div>
+
+<div id="nn-label">Neural activity ⓘ</div>
+<canvas id="nn-canvas" width="500" height="300"></canvas>
+
+<script defer>
+const moves = ["rock","paper","scissors"];
+const canvas = document.getElementById("nn-canvas");
+const ctx = canvas.getContext("2d");
+
+// Editor management
+function renderEditorButtons(){
+    const container = document.getElementById("editor-buttons");
+    container.innerHTML = ''; // clear previous
+    editors.forEach(ed=>{
+        if(ed.enabled){
+            const btn = document.createElement("button");
+            btn.innerText = ed.name;
+            btn.onclick = ()=>returnTo(ed.url);
+            container.appendChild(btn);
+        }
+    });
+
+    // Always add Edit button at end
+    const editBtn = document.createElement("button");
+    editBtn.innerText = "Edit";
+    editBtn.onclick = showEditModal;
+    container.appendChild(editBtn);
+}
+
+let editors = [
+    {name:"VS Code", url:"vscode://file/", enabled:true},
+    {name:"Vim", url:"vim://", enabled:true},
+    {name:"Sublime", url:"subl://", enabled:false},
+    {name:"Atom", url:"atom://", enabled:false},
+    {name:"NeoVim", url:"nvim://", enabled:false},
+];
+
+function renderEditorButtons(){
+    const container = document.getElementById("editor-buttons");
+    container.innerHTML = ''; // clear previous
+    editors.forEach(ed=>{
+        if(ed.enabled){
+            const btn = document.createElement("button");
+            btn.innerText = ed.name;
+            btn.onclick = ()=>returnTo(ed.url);
+            container.appendChild(btn);
+        }
+    });
+
+    // Always add Edit button at end
+    const editBtn = document.createElement("button");
+    editBtn.innerText = "Edit";
+    editBtn.onclick = showEditModal;
+    container.appendChild(editBtn);
+}
+
+// Populate editor form
+function showEditModal() {
+    const form = document.getElementById("editor-form");
+    form.innerHTML = "";
+    editors.forEach((ed,i)=>{
+        const chk = document.createElement("input");
+        chk.type="checkbox";
+        chk.checked = ed.enabled;
+        chk.id = "ed"+i;
+        chk.dataset.idx = i;
+        const lbl = document.createElement("label");
+        lbl.innerText = ed.name;
+        lbl.htmlFor = chk.id;
+        form.appendChild(chk);
+        form.appendChild(lbl);
+        form.appendChild(document.createElement("br"));
+    });
+    document.getElementById("edit-modal").style.display="block";
+}
+
+function saveEditors() {
+    const checked = document.querySelectorAll("#editor-form input[type=checkbox]:checked");
+    if(checked.length > 5){
+        alert("You can select up to 5 editors only!");
+        return;
+    }
+    editors.forEach((ed,i)=>{
+        ed.enabled = document.getElementById("ed"+i).checked;
+    });
+    document.getElementById("edit-modal").style.display="none";
+    renderEditorButtons(); // ✅ update buttons dynamically
+}
+
+
+// Open editor URL
+function returnTo(url){
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    // remove it after a few seconds
+    setTimeout(()=>document.body.removeChild(iframe), 2000);
+}
+
+// Neural network setup
+const layers = [6,10,3];
+let neuronPositions = [];
+layers.forEach((count,layerIdx)=>{
+    const positions=[];
+    const gap = canvas.height/(count+1);
+    const x = canvas.width*(layerIdx+1)/(layers.length+1);
+    for(let i=0;i<count;i++){
+        positions.push({x:x, y:gap*(i+1)});
+    }
+    neuronPositions.push(positions);
+});
+
+function drawNetwork(states, connections, currentAnswer="") {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(let l=0;l<connections.length;l++){
+        const fromLayer=neuronPositions[l];
+        const toLayer=neuronPositions[l+1];
+        if(!toLayer) continue;
+        for(let i=0;i<fromLayer.length;i++){
+            if(!connections[l][i]) continue;
+            for(let j=0;j<toLayer.length;j++){
+                const w = connections[l][i][j] || 0;
+                ctx.strokeStyle = w>=0?`rgba(0,150,0,${Math.min(Math.abs(w),1)})`:`rgba(150,0,0,${Math.min(Math.abs(w),1)})`;
+                ctx.lineWidth = Math.abs(w)*2;
+                ctx.beginPath();
+                ctx.moveTo(fromLayer[i].x, fromLayer[i].y);
+                ctx.lineTo(toLayer[j].x, toLayer[j].y);
+                ctx.stroke();
+            }
+        }
+    }
+    for(let l=0;l<neuronPositions.length;l++){
+        const layer = neuronPositions[l];
+        for(let n=0;n<layer.length;n++){
+            const val = states[l] && states[l][n]?states[l][n]:0;
+            const alpha = Math.min(val,1);
+            ctx.fillStyle = `rgba(0,0,255,${alpha})`;
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(layer[n].x, layer[n].y, 15,0,Math.PI*2);
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+    ctx.fillStyle="#000";
+    ctx.font="16px sans-serif";
+    ctx.textAlign="center";
+    ctx.fillText("Current answer: " + currentAnswer, canvas.width/2, canvas.height-10);
+}
+
+// Winner helper
+function getWinner(human, ai){
+    if(human===ai) return "Draw!";
+    if((human==="rock"&&ai==="scissors")||(human==="paper"&&ai==="rock")||(human==="scissors"&&ai==="paper")) return "You win!";
+    return "AI wins!";
+}
+
+function currentAnswerFromOutput(outputState){
+    let maxIdx=0,maxVal=outputState[0];
+    for(let i=1;i<outputState.length;i++){
+        if(outputState[i]>maxVal){maxVal=outputState[i];maxIdx=i;}
+    }
+    return moves[maxIdx];
+}
+
+async function play(move){
+    const res = await fetch("/play",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({move})});
+    const data = await res.json();
+    document.getElementById("ai-move-box").innerText=data.ai_move;
+    document.getElementById("result").innerText=getWinner(move,data.ai_move);
+
+    const inputState=Array(6).fill(0).map((_,i)=>i===moves.indexOf(move)?1:0);
+    const hiddenState=data.neurons;
+    const outputState=Array(3).fill(0);
+    const states=[inputState, hiddenState, outputState];
+
+    const connections=data.connections;
+    if(connections.length<2){
+        connections.push(Array(hiddenState.length).fill(0).map(()=>Array(3).fill(0)));
+    }
+
+    const finalOutput=data.output||Array(3).fill(0);
+    let currentAlphas=Array(hiddenState.length).fill(0);
+
+    for(let step=0;step<hiddenState.length;step++){
+        const targetAlpha=hiddenState[step];
+        for(let f=0;f<=10;f++){
+            currentAlphas[step]=targetAlpha*(f/10);
+            const animStates=[states[0],currentAlphas,finalOutput];
+            const scaledOutput=finalOutput.map(v=>v*((step+1)/hiddenState.length));
+            const currentAns=currentAnswerFromOutput(scaledOutput);
+            drawNetwork(animStates,connections,currentAns);
+            await new Promise(r=>setTimeout(r,30));
+        }
+    }
+    drawNetwork(states,connections,data.ai_move);
+}
+renderEditorButtons();
+</script>
+</body>
+</html>
